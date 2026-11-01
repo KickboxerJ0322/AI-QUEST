@@ -56,7 +56,30 @@ async function cloudRoute(req,res,path){
    const body=await readBody(req);
    const result=await startRun(body.command,tokenHash(req));json(res,201,{run:result});return;
   }
-  const match=/^\\/api\\/runs\\/([0-9a-f-]{36})(\\/stop)?$/.exec(path);
+  const match=new RegExp('^/api/runs/([0-9a-f-]{36})(/stop)?
+  if(match){
+   if(req.method==='GET'&&!match[2]){const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
+   if(req.method==='POST'&&match[2]){const run=await stopRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
+  }
+  json(res,404,{error:'Not found'});
+ }catch(e){console.error('Cloud run route failed',String(e.message).slice(0,180));json(res,500,{error:'Cloud mission request failed. Check Firestore configuration.'});}
+}
+
+http.createServer((req, res) => {
+  const path = (req.url || '').split('?')[0];
+  if(path.startsWith('/api/runs')){void cloudRoute(req,res,path);return;}
+  if(path==='/api/agent/decide'&&req.method==='POST'){void handleAgent(req,res);return;}
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, {...securityHeaders,'Allow':'GET, HEAD'}); res.end(); return; }
+  if (path === '/healthz') {
+    res.writeHead(200, {...securityHeaders, 'Content-Type':'application/json; charset=utf-8'});
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify({ok:true,service:'ai-quest'}));return;
+  }
+  const file = files.get(path);
+  if (!file) { res.writeHead(404, securityHeaders);res.end();return; }
+  res.writeHead(200,{...securityHeaders,'Content-Type':file.type});
+  res.end(req.method === 'HEAD' ? undefined : file.data);
+}).listen(port,'0.0.0.0',()=>{console.log('AI QUEST listening on '+port);resumeRuns().catch(e=>console.error('Run resume failed:',e.message));});
+).exec(path);
   if(match){
    if(req.method==='GET'&&!match[2]){const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
    if(req.method==='POST'&&match[2]){const run=await stopRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
