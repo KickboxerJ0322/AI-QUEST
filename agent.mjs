@@ -43,3 +43,31 @@ export async function decide({observation,command,memory}){
  let result;try{result=sanitizeDecision(parsed,observation);}catch(e){console.error('Gemini invalid decision:',String(e.message));throw new AgentError('GEMINI_INVALID_ACTION','Gemini returned an invalid game action',true);}
  return {...result,model,usage:{inputTokens:data.usageMetadata?.promptTokenCount||0,outputTokens:data.usageMetadata?.candidatesTokenCount||0,totalTokens:data.usageMetadata?.totalTokenCount||0}};
 }
+
+/**
+ * STEP 3: one Gemini call proposes up to 12 bounded actions.
+ * The runner observes the world after EVERY action and stops the batch
+ * on battle, changed location, obstruction or victory. No hidden map data.
+ */
+export async function decideBatch({observation,command,memory,history=[],remainingSeconds}){
+ const key=process.env.GEMINI_API_KEY;if(!key)throw new AgentError('GEMINI_NOT_CONFIGURED','Missing API key');
+ const model=getModel();
+ const choices=observation.availableActions.filter(x=>ACTIONS.has(x));
+ const schema={type:'OBJECT',properties:{
+  actions:{type:'ARRAY',minItems:1,maxItems:12,items:{type:'OBJECT',properties:{action:{type:'STRING',enum:[...ACTIONS]},item:{type:'STRING',enum:['potion','sword','armor']}},required:['action']}},
+  reason:{type:'STRING'},note:{type:'STRING'}
+ },required:['actions','reason'],propertyOrdering:['actions','reason','note']};
+ const system='You are the autonomous hero of an original Japanese RPG. Obey the king command. You only know the observation, your notebook and recent explored path; never assume the full map. Propose 1-12 actions, preferably a short route to unexplored terrain or known town/dungeon. Do not repeat pointless visits or chase coins that were already collected. The engine checks each action and interrupts the batch if combat, a wall, a special tile, or the game ends. During combat propose attack/heal/potion/escape only. Do not buy unless currently at a town. Notes must be short and NEW facts only; do not restate existing notes. Respond with JSON only.';
+ const body={systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify({kingCommand:command,observation:{...observation,notes:undefined},memory,history:history.slice(-24),remainingSeconds,allowedNow:choices})}]}],generationConfig:{responseMimeType:'application/json',responseSchema:schema,temperature:0.25,maxOutputTokens:4096,...(model.startsWith('gemini-3')?{thinkingConfig:{thinkingLevel:'minimal'}}:{})}};
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),45000);let response;
+ try{response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body),signal:ctrl.signal});}
+ catch(e){throw new AgentError('GEMINI_NETWORK',String(e.message).slice(0,120),true);}
+ finally{clearTimeout(timer);}
+ const data=await response.json().catch(()=>({}));
+ if(!response.ok){const status=response.status;console.error('Gemini batch failure',status,String(data.error?.message||'').slice(0,250));throw new AgentError(status===429?'GEMINI_QUOTA':'GEMINI_API_'+status,'Gemini HTTP '+status,status===429||status>=500,Number(response.headers.get('retry-after'))||0);}
+ const raw=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
+ let value;try{value=JSON.parse(raw);}catch{console.error('Batch invalid JSON',data.candidates?.[0]?.finishReason);throw new AgentError('GEMINI_INVALID_JSON','Invalid batch JSON',true);}
+ if(!Array.isArray(value.actions)||value.actions.length<1||value.actions.length>12)throw new AgentError('GEMINI_INVALID_ACTION','Invalid action batch',true);
+ const actions=value.actions.map(a=>{if(!a||!ACTIONS.has(a.action))throw new AgentError('GEMINI_INVALID_ACTION','Unknown action',true);if(a.action==='buy'&&!['potion','sword','armor'].includes(a.item))throw new AgentError('GEMINI_INVALID_ACTION','Unknown shop item',true);return {type:a.action,...(a.action==='buy'?{item:a.item}:{})};});
+ return {actions,reason:String(value.reason||'').slice(0,200),note:String(value.note||'').slice(0,220),usage:data.usageMetadata||{}};
+}
