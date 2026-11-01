@@ -38,6 +38,9 @@ jobs:
             --region=asia-northeast1 \
             --source=. \
             --allow-unauthenticated \
+            --min-instances=1 \
+            --max-instances=1 \
+            --no-cpu-throttling \
             --quiet
       - name: Print service URL
         run: gcloud run services describe ai-quest --project=jumpeicloud --region=asia-northeast1 --format='value(status.url)'
