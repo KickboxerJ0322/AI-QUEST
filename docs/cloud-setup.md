@@ -14,6 +14,10 @@ gcloud projects add-iam-policy-binding jumpeicloud --member="serviceAccount:$SA"
 gcloud projects add-iam-policy-binding jumpeicloud --member="serviceAccount:$SA" --role="roles/cloudbuild.builds.editor"
 gcloud projects add-iam-policy-binding jumpeicloud --member="serviceAccount:$SA" --role="roles/artifactregistry.writer"
 gcloud projects add-iam-policy-binding jumpeicloud --member="serviceAccount:$SA" --role="roles/serviceusage.serviceUsageConsumer"
+# Source deployment uploads a source archive to a Cloud Storage bucket.
+# Prefer pre-creating a dedicated staging bucket and granting bucket-scoped access.
+# For initial gcloud run deploy --source=. the deployer may need project-level storage.buckets.create.
+# Grant roles/storage.admin only if the source staging bucket does not exist; review and narrow afterward.
 # Cloud Run service identity defaults to Compute Engine default service account for first deployment.
 RUNTIME_SA="$(gcloud projects describe jumpeicloud --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
 gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --member="serviceAccount:$SA" --role="roles/iam.serviceAccountUser"
