@@ -11,6 +11,10 @@ function clean(run){const {secretHash,...safe}=run;return safe;}
 export async function startRun(command,secretHash){
  if(typeof command!=='string'||!command.trim()||command.length>1500)throw Error('Invalid king command');
  const id=randomUUID(),now=Date.now();
+ const active=await collection.where('status','==','running').limit(1).get();
+ if(!active.empty)throw Error('Another cloud mission is already running');
+ const recent=await collection.where('startedAt','>=',now-86400000).limit(12).get();
+ if(recent.size>=10)throw Error('Daily mission limit reached (10)');
  const state=initialize(createGame(42));
  const run={id,command:command.trim(),secretHash,startedAt:now,deadline:now+DURATION,status:'running',state,history:[],calls:0,actions:0,tokens:0,lastError:'',updatedAt:now};
  await collection.doc(id).create(run);
