@@ -1,9 +1,9 @@
 // AI QUEST STEP 1: deterministic, browser-only RPG engine.
 // No paid APIs or server-side session storage are used in this milestone.
 export const WORLD = [
-"########################",
-"#C....g...f...g...T....#",
-"#.##..gg..f..##..g.....#",
+"#######################.#",
+"#C....g...f...g...T.....#",
+"#.##..gg..f..##..g......#",
 "#....gg....f......g.....#",
 "#..gg....##....g........#",
 "#.....g...f...g...##....#",
@@ -24,7 +24,7 @@ export const WORLD = [
 "#......g....g....g......#",
 "#..##.......g.......M...#",
 "#.......................#",
-"########################"
+"#######################.#"
 ];
 export const W=WORLD[0].length,H=WORLD.length;
 export const LOCATIONS={castle:[1,1],town:[18,1],village:[2,13],dungeon:[11,7],boss:[20,21]};
