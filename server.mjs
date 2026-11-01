@@ -1,7 +1,8 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import {decide} from './agent.mjs';
-import {timingSafeEqual} from 'node:crypto';
+import {timingSafeEqual,createHash} from 'node:crypto';
+import {startRun,getRun,stopRun,resumeRuns} from './runner.mjs';
 const port = Number(process.env.PORT || 8080);
 const assets = new Map([
   ['/', ['public/index.html', 'text/html; charset=utf-8']],
@@ -45,8 +46,28 @@ async function handleAgent(req,res){
  catch(err){const code=err.code||'GEMINI_UNKNOWN';console.error('Gemini decision error:',code,String(err.message).slice(0,200));json(res,502,{error:code==='GEMINI_QUOTA'?'Gemini APIの利用上限に達しました。しばらく待つかAPIクォータを確認してください。':code==='GEMINI_MODEL_NOT_FOUND'?'指定したGeminiモデルが利用できません。Cloud RunのGEMINI_MODELを確認してください。':code==='GEMINI_INVALID_ACTION'?'Geminiが実行できない行動を返しました。':code==='GEMINI_OUTPUT_TRUNCATED'?'Geminiの出力がトークン上限で途中終了しました。':code==='GEMINI_INVALID_JSON'?'Geminiの応答をJSONとして解析できませんでした。':'Geminiの呼び出しに失敗しました。Cloud Runログを確認してください。',code,retryable:!!err.retryable,retryAfter:Math.min(120,Math.max(0,err.retryAfter||0))});}
  finally{active--;}
 }
+
+function tokenHash(req){const token=req.headers['x-ai-quest-token'];return typeof token==='string'?createHash('sha256').update(token).digest('hex'):'';}
+async function readBody(req,max=4000){let raw='';for await(const c of req){raw+=c;if(raw.length>max)throw Error('Request too large');}return JSON.parse(raw);}
+async function cloudRoute(req,res,path){
+ if(!authorized(req)){json(res,403,{error:'Access denied'});return;}
+ try{
+  if(path==='/api/runs'&&req.method==='POST'){
+   const body=await readBody(req);
+   const result=await startRun(body.command,tokenHash(req));json(res,201,{run:result});return;
+  }
+  const match=/^\\/api\\/runs\\/([0-9a-f-]{36})(\\/stop)?$/.exec(path);
+  if(match){
+   if(req.method==='GET'&&!match[2]){const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
+   if(req.method==='POST'&&match[2]){const run=await stopRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
+  }
+  json(res,404,{error:'Not found'});
+ }catch(e){console.error('Cloud run route failed',String(e.message).slice(0,180));json(res,500,{error:'Cloud mission request failed. Check Firestore configuration.'});}
+}
+
 http.createServer((req, res) => {
   const path = (req.url || '').split('?')[0];
+  if(path.startsWith('/api/runs')){void cloudRoute(req,res,path);return;}
   if(path==='/api/agent/decide'&&req.method==='POST'){void handleAgent(req,res);return;}
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, {...securityHeaders,'Allow':'GET, HEAD'}); res.end(); return; }
   if (path === '/healthz') {
@@ -57,4 +78,4 @@ http.createServer((req, res) => {
   if (!file) { res.writeHead(404, securityHeaders);res.end();return; }
   res.writeHead(200,{...securityHeaders,'Content-Type':file.type});
   res.end(req.method === 'HEAD' ? undefined : file.data);
-}).listen(port,'0.0.0.0',()=>console.log('AI QUEST listening on '+port));
+}).listen(port,'0.0.0.0',()=>{console.log('AI QUEST listening on '+port);resumeRuns().catch(e=>console.error('Run resume failed:',e.message));});
