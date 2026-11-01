@@ -1,0 +1,38 @@
+name: Deploy AI QUEST to Cloud Run
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: cloud-run-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate required repository variables
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$GCP_WIF_PROVIDER" || { echo "::error::Set repository variable GCP_WIF_PROVIDER"; exit 1; }
+          test -n "$GCP_SERVICE_ACCOUNT" || { echo "::error::Set repository variable GCP_SERVICE_ACCOUNT"; exit 1; }
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy source to Cloud Run
+        run: |
+          gcloud run deploy ai-quest \
+            --project=jumpeicloud \
+            --region=asia-northeast1 \
+            --source=. \
+            --allow-unauthenticated \
+            --quiet
+      - name: Print service URL
+        run: gcloud run services describe ai-quest --project=jumpeicloud --region=asia-northeast1 --format='value(status.url)'
