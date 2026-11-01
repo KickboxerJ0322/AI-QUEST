@@ -59,6 +59,14 @@ async function runAgent(){
  finally{running=false;accessToken='';$('accessToken').value='';$('startAi').disabled=false;$('stopAi').disabled=true;$('kingCommand').disabled=false;}
 }
 $('startAi').addEventListener('click',runAgent);
+$('resumeAi').addEventListener('click',async()=>{
+ if(running)return;
+ accessToken=$('accessToken').value.trim();if(!accessToken||!currentRunId){alert('アクセス・トークンを入力してください。実行IDはこのブラウザのセッションに保存されています。');return;}
+ running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=false;
+ try{while(!abortAgent){const {run}=await cloudRequest('/api/runs/'+currentRunId);displayCloudRun(run);if(run.status!=='running')break;await sleep(3500);}}
+ catch(e){alert('冒険を読み込めません: '+e.message);}
+ finally{running=false;accessToken='';$('accessToken').value='';$('startAi').disabled=false;$('stopAi').disabled=true;}
+});
 $('stopAi').addEventListener('click',async()=>{abortAgent=true;if(currentRunId&&accessToken){try{await cloudRequest('/api/runs/'+currentRunId+'/stop','POST');}catch(e){alert('停止に失敗しました: '+e.message);}}$('aiStatus').textContent='停止処理中…';});
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act({type:b.dataset.action,item:b.dataset.item})));
 $('reset').addEventListener('click',()=>{if(running){alert('AIを停止してからリセットしてください。');return;}if(confirm('現在の冒険をリセットしますか？')){currentRunId='';sessionStorage.removeItem('ai-quest-run-id');state=initialize(createGame());render();}});
