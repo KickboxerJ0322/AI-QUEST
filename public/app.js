@@ -42,11 +42,24 @@ async function runAgent(){
  running=true;abortAgent=false;apiCalls=0;totalTokens=0;
  $('startAi').disabled=true;$('stopAi').disabled=false;$('kingCommand').disabled=true;
  const deadline=Date.now()+30*60*1000;
+ let retries=0;
  try{
   while(!abortAgent&&!state.gameOver&&Date.now()<deadline&&apiCalls<120){
    const observation=observe(state);
    const res=await fetch('/api/agent/decide',{method:'POST',headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},body:JSON.stringify({observation,command:kingOrder,memory:state.notes||[]})});
-   const data=await res.json();if(!res.ok)throw Error(data.error||'HTTP '+res.status);
+   const data=await res.json();
+   if(!res.ok){
+    const code=data.code||'HTTP_'+res.status;
+    if(data.retryable&&retries<3){
+     retries++;
+     const waitMs=Math.max((Number(data.retryAfter)||0)*1000,code==='GEMINI_QUOTA'?60000:Math.min(30000,5000*Math.pow(2,retries-1)));
+     state.log.unshift('⏳ '+code+'：'+(data.error||'一時的なエラー')+'。'+Math.round(waitMs/1000)+'秒後に再試行 ('+retries+'/3)');render();
+     await sleep(Math.min(waitMs,Math.max(0,deadline-Date.now())));
+     continue;
+    }
+    throw Error(code+': '+(data.error||'HTTP '+res.status));
+   }
+   retries=0;
    if(abortAgent)break;
    if(typeof data.note==='string'&&data.note.trim()){
     state.notes=state.notes||[];const note=data.note.trim().slice(0,350);
@@ -54,7 +67,7 @@ async function runAgent(){
    }
    state.log.unshift('🤖 '+(data.reason||'行動を決定')+' → '+data.action.type);
    act(data.action);apiCalls++;totalTokens+=data.usage?.totalTokens||0;
-   await sleep(3800);
+   await sleep(6500);
   }
   if(Date.now()>=deadline)state.log.unshift('⏰ 30分の制限時間に達しました。');
   else if(apiCalls>=120)state.log.unshift('⚠️ STEP 2のAPI呼出上限120回に達しました。');
