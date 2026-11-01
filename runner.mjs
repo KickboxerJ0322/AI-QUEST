@@ -49,6 +49,7 @@ async function drive(id){
    const o=observe(run.state);
    // History is accumulated by the engine, never expose hidden world tiles.
    const result=await decideBatch({observation:o,command:run.command,memory:run.state.notes||[],history:run.history,remainingSeconds:Math.floor((run.deadline-now)/1000)});
+   if((await ref.get()).data()?.status!=='running')return;
    failures=0;run.calls++;run.tokens+=result.usage.totalTokenCount||0;
    if(result.note&&!(run.state.notes||[]).includes(result.note)){
     run.state.notes=[...(run.state.notes||[]).slice(-11),result.note];
@@ -70,7 +71,8 @@ async function drive(id){
    }
    run.state.log.unshift('🤖 '+result.reason+' / '+executed+'行動');
    run.state.log=run.state.log.slice(0,80);
-   run.updatedAt=Date.now();await ref.set(run);
+   run.updatedAt=Date.now();
+   await db.runTransaction(async tx=>{const current=await tx.get(ref);if(current.data()?.status==='running')tx.set(ref,run);});
    await pause(3500);
   }catch(e){
    failures++;console.error('AI QUEST run error',id,e.code||'ERROR',String(e.message).slice(0,180));
