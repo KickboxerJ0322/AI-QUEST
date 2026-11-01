@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run game engine tests
+        run: npm test
       - name: Validate required repository variables
         env:
           GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
