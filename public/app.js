@@ -34,50 +34,34 @@ function render(){
 }
 function act(action){if(running&&document.activeElement?.hasAttribute('data-action'))return;state=dispatch(state,action);render();}
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+let currentRunId=sessionStorage.getItem('ai-quest-run-id')||'';
+async function cloudRequest(path,method='GET',payload){const r=await fetch(path,{method,headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},...(payload?{body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error||'HTTP '+r.status);return d;}
+function displayCloudRun(run){
+ if(run.state){state=run.state;apiCalls=run.calls||0;totalTokens=run.tokens||0;render();}
+ const remaining=Math.max(0,Math.ceil((run.deadline-Date.now())/1000));
+ $('aiStatus').textContent='クラウド '+run.status+' ｜残り '+Math.floor(remaining/60)+':'+String(remaining%60).padStart(2,'0')+' ｜API '+apiCalls+'回 ｜行動 '+(run.actions||0)+'回 ｜'+totalTokens+' tokens'+(run.lastError?' ｜'+run.lastError:'');
+}
 async function runAgent(){
  if(running)return;
  accessToken=$('accessToken').value.trim();kingOrder=$('kingCommand').value.trim();
  if(!accessToken||!kingOrder){alert('王様の命令とアクセス・トークンを入力してください。');return;}
- if(state.gameOver){alert('冒険が終了しています。「最初から」で再開してください。');return;}
- running=true;abortAgent=false;apiCalls=0;totalTokens=0;
- $('startAi').disabled=true;$('stopAi').disabled=false;$('kingCommand').disabled=true;
- const deadline=Date.now()+30*60*1000;
- let retries=0;
+ running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=false;$('kingCommand').disabled=true;
  try{
-  while(!abortAgent&&!state.gameOver&&Date.now()<deadline&&apiCalls<120){
-   const observation=observe(state);
-   const res=await fetch('/api/agent/decide',{method:'POST',headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},body:JSON.stringify({observation,command:kingOrder,memory:state.notes||[]})});
-   const data=await res.json();
-   if(!res.ok){
-    const code=data.code||'HTTP_'+res.status;
-    if(data.retryable&&retries<3){
-     retries++;
-     const waitMs=Math.max((Number(data.retryAfter)||0)*1000,code==='GEMINI_QUOTA'?60000:Math.min(30000,5000*Math.pow(2,retries-1)));
-     state.log.unshift('⏳ '+code+'：'+(data.error||'一時的なエラー')+'。'+Math.round(waitMs/1000)+'秒後に再試行 ('+retries+'/3)');render();
-     await sleep(Math.min(waitMs,Math.max(0,deadline-Date.now())));
-     continue;
-    }
-    throw Error(code+': '+(data.error||'HTTP '+res.status));
-   }
-   retries=0;
-   if(abortAgent)break;
-   if(typeof data.note==='string'&&data.note.trim()){
-    state.notes=state.notes||[];const note=data.note.trim().slice(0,350);
-    if(!state.notes.includes(note)){state.notes.push(note);if(state.notes.length>30)state.notes.shift();}
-   }
-   state.log.unshift('🤖 '+(data.reason||'行動を決定')+' → '+data.action.type);
-   act(data.action);apiCalls++;totalTokens+=data.usage?.totalTokens||0;
-   await sleep(6500);
+  const result=await cloudRequest('/api/runs','POST',{command:kingOrder});
+  currentRunId=result.run.id;sessionStorage.setItem('ai-quest-run-id',currentRunId);
+  while(!abortAgent){
+   const {run}=await cloudRequest('/api/runs/'+currentRunId);
+   displayCloudRun(run);
+   if(run.status!=='running')break;
+   await sleep(3500);
   }
-  if(Date.now()>=deadline)state.log.unshift('⏰ 30分の制限時間に達しました。');
-  else if(apiCalls>=120)state.log.unshift('⚠️ STEP 2のAPI呼出上限120回に達しました。');
- }catch(e){state.log.unshift('⚠️ AI停止: '+String(e.message).slice(0,180));}
- finally{running=false;accessToken='';$('accessToken').value='';$('startAi').disabled=false;$('stopAi').disabled=true;$('kingCommand').disabled=false;render();}
+ }catch(e){state.log.unshift('⚠️ クラウド実行: '+String(e.message).slice(0,160));render();}
+ finally{running=false;accessToken='';$('accessToken').value='';$('startAi').disabled=false;$('stopAi').disabled=true;$('kingCommand').disabled=false;}
 }
 $('startAi').addEventListener('click',runAgent);
-$('stopAi').addEventListener('click',()=>{abortAgent=true;$('aiStatus').textContent='停止処理中…';});
+$('stopAi').addEventListener('click',async()=>{abortAgent=true;if(currentRunId&&accessToken){try{await cloudRequest('/api/runs/'+currentRunId+'/stop','POST');}catch(e){alert('停止に失敗しました: '+e.message);}}$('aiStatus').textContent='停止処理中…';});
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act({type:b.dataset.action,item:b.dataset.item})));
-$('reset').addEventListener('click',()=>{if(running){alert('AIを停止してからリセットしてください。');return;}if(confirm('現在の冒険をリセットしますか？')){state=initialize(createGame());render();}});
+$('reset').addEventListener('click',()=>{if(running){alert('AIを停止してからリセットしてください。');return;}if(confirm('現在の冒険をリセットしますか？')){currentRunId='';sessionStorage.removeItem('ai-quest-run-id');state=initialize(createGame());render();}});
 $('save').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({state,observation:observe(state),exportedAt:new Date().toISOString()},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='ai-quest-adventure.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 window.addEventListener('keydown',e=>{if(e.target.matches('input,textarea'))return;const k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',s:'down',a:'left',d:'right'}[e.key];if(k){e.preventDefault();if(!running)act({type:k});}});
 render();
