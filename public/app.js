@@ -35,6 +35,8 @@ function render(){
 function act(action){if(running&&document.activeElement?.hasAttribute('data-action'))return;state=dispatch(state,action);render();}
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let currentRunId=sessionStorage.getItem('ai-quest-run-id')||'';
+$('runId').value=currentRunId;
+$('copyRunId').addEventListener('click',async()=>{if(!$('runId').value.trim())return;try{await navigator.clipboard.writeText($('runId').value.trim());}catch{alert('コピーできません。冒険IDを手動でコピーしてください。');}});
 async function cloudRequest(path,method='GET',payload){const r=await fetch(path,{method,headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},...(payload?{body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error||'HTTP '+r.status);return d;}
 function displayCloudRun(run){
  if(run.state){state=run.state;apiCalls=run.calls||0;totalTokens=run.tokens||0;render();}
@@ -48,7 +50,7 @@ async function runAgent(){
  running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=false;$('kingCommand').disabled=true;
  try{
   const result=await cloudRequest('/api/runs','POST',{command:kingOrder});
-  currentRunId=result.run.id;sessionStorage.setItem('ai-quest-run-id',currentRunId);
+  currentRunId=result.run.id;$('runId').value=currentRunId;sessionStorage.setItem('ai-quest-run-id',currentRunId);
   while(!abortAgent){
    const {run}=await cloudRequest('/api/runs/'+currentRunId);
    displayCloudRun(run);
@@ -61,7 +63,8 @@ async function runAgent(){
 $('startAi').addEventListener('click',runAgent);
 $('resumeAi').addEventListener('click',async()=>{
  if(running)return;
- accessToken=$('accessToken').value.trim();if(!accessToken||!currentRunId){alert('アクセス・トークンを入力してください。実行IDはこのブラウザのセッションに保存されています。');return;}
+ accessToken=$('accessToken').value.trim();currentRunId=$('runId').value.trim()||currentRunId;if(!accessToken||!currentRunId){alert('アクセス・トークンを入力してください。実行IDはこのブラウザのセッションに保存されています。');return;}
+ sessionStorage.setItem('ai-quest-run-id',currentRunId);
  running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=false;
  try{while(!abortAgent){const {run}=await cloudRequest('/api/runs/'+currentRunId);displayCloudRun(run);if(run.status!=='running')break;await sleep(3500);}}
  catch(e){alert('冒険を読み込めません: '+e.message);}
@@ -69,7 +72,7 @@ $('resumeAi').addEventListener('click',async()=>{
 });
 $('stopAi').addEventListener('click',async()=>{abortAgent=true;if(currentRunId&&accessToken){try{await cloudRequest('/api/runs/'+currentRunId+'/stop','POST');}catch(e){alert('停止に失敗しました: '+e.message);}}$('aiStatus').textContent='停止処理中…';});
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act({type:b.dataset.action,item:b.dataset.item})));
-$('reset').addEventListener('click',()=>{if(running){alert('AIを停止してからリセットしてください。');return;}if(confirm('現在の冒険をリセットしますか？')){currentRunId='';sessionStorage.removeItem('ai-quest-run-id');state=initialize(createGame());render();}});
+$('reset').addEventListener('click',()=>{if(running){alert('AIを停止してからリセットしてください。');return;}if(confirm('現在の冒険をリセットしますか？')){currentRunId='';$('runId').value='';sessionStorage.removeItem('ai-quest-run-id');state=initialize(createGame());render();}});
 $('save').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({state,observation:observe(state),exportedAt:new Date().toISOString()},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='ai-quest-adventure.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 window.addEventListener('keydown',e=>{if(e.target.matches('input,textarea'))return;const k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',s:'down',a:'left',d:'right'}[e.key];if(k){e.preventDefault();if(!running)act({type:k});}});
 render();
