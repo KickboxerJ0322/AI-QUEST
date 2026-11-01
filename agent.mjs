@@ -15,6 +15,7 @@ export function sanitizeDecision(value, observation){
  return {action,note,reason};
 }
 export function getModel(){const model=process.env.GEMINI_MODEL||'gemini-3-flash-preview';if(!MODEL_PATTERN.test(model))throw Error('Invalid model ID');return model;}
+export class AgentError extends Error {constructor(code,message,retryable=false,retryAfter=0){super(message);this.code=code;this.retryable=retryable;this.retryAfter=retryAfter;}}
 export async function decide({observation,command,memory}){
  const key=process.env.GEMINI_API_KEY;
  if(!key)throw Error('GEMINI_API_KEY is not configured');
@@ -26,9 +27,17 @@ export async function decide({observation,command,memory}){
  try{response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body),signal:ctrl.signal});}
  finally{clearTimeout(timer);}
  const data=await response.json();
- if(!response.ok)throw Error(`Gemini API ${response.status}: ${String(data.error?.message||'request failed').slice(0,180)}`);
+ if(!response.ok){
+  const status=response.status;
+  const code=status===429?'GEMINI_QUOTA':status===400?'GEMINI_BAD_REQUEST':status===403?'GEMINI_PERMISSION':status===404?'GEMINI_MODEL_NOT_FOUND':status>=500?'GEMINI_UPSTREAM':'GEMINI_API_ERROR';
+  const retryable=status===429||status>=500;
+  const retryAfter=Number(response.headers.get('retry-after'))||0;
+  console.error('Gemini API failure',JSON.stringify({status,code,detail:String(data.error?.message||'').slice(0,400)}));
+  throw new AgentError(code,'Gemini API returned HTTP '+status,retryable,retryAfter);
+ }
  const text=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
- if(!text)throw Error('Gemini returned no text');
- const result=sanitizeDecision(JSON.parse(text),observation);
+ if(!text)throw new AgentError('GEMINI_EMPTY','Gemini returned no text',true);
+ let parsed;try{parsed=JSON.parse(text);}catch{throw new AgentError('GEMINI_INVALID_JSON','Gemini response was not valid JSON',true);}
+ let result;try{result=sanitizeDecision(parsed,observation);}catch(e){console.error('Gemini invalid decision:',String(e.message));throw new AgentError('GEMINI_INVALID_ACTION','Gemini returned an invalid game action',true);}
  return {...result,model,usage:{inputTokens:data.usageMetadata?.promptTokenCount||0,outputTokens:data.usageMetadata?.candidatesTokenCount||0,totalTokens:data.usageMetadata?.totalTokenCount||0}};
 }
