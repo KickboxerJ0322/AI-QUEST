@@ -10,12 +10,19 @@ export function sanitizeDecision(value, observation){
   if(!['potion','sword','armor'].includes(value.item))throw Error('Invalid shop item');
   action.item=value.item;
  }
- const note=typeof value.note==='string'?value.note.trim().slice(0,350):'';
- const reason=typeof value.reason==='string'?value.reason.trim().slice(0,240):'';
+ const note=japaneseText(value.note,350);
+ const reason=japaneseText(value.reason,240);
  return {action,note,reason};
 }
 export function getModel(){const model=process.env.GEMINI_MODEL||'gemini-3-flash-preview';if(!MODEL_PATTERN.test(model))throw Error('Invalid model ID');return model;}
 export class AgentError extends Error {constructor(code,message,retryable=false,retryAfter=0){super(message);this.code=code;this.retryable=retryable;this.retryAfter=retryAfter;}}
+// Reject untranslated prose before it reaches either notebook or adventure log.
+export function japaneseText(value,max,{required=false}={}){
+ const text=typeof value==='string'?value.trim().slice(0,max):'';
+ if((required&&!text)||(text&&!/[ぁ-んァ-ヶ一-龯]/u.test(text)))
+  throw new AgentError('GEMINI_LANGUAGE','説明と冒険メモは日本語で記録してください。',true);
+ return text;
+}
 export async function decide({observation,command,memory}){
  const key=process.env.GEMINI_API_KEY;
  if(!key)throw Error('GEMINI_API_KEY is not configured');
@@ -40,7 +47,7 @@ export async function decide({observation,command,memory}){
  const finishReason=data.candidates?.[0]?.finishReason||'UNKNOWN';
  if(!text){console.error('Gemini empty response',JSON.stringify({finishReason,usage:data.usageMetadata}));throw new AgentError('GEMINI_EMPTY','Gemini returned no text',true);}
  let parsed;try{parsed=JSON.parse(text);}catch{console.error('Gemini invalid JSON',JSON.stringify({finishReason,characters:text.length,usage:data.usageMetadata}));throw new AgentError(finishReason==='MAX_TOKENS'?'GEMINI_OUTPUT_TRUNCATED':'GEMINI_INVALID_JSON','Gemini response was not valid JSON',true);}
- let result;try{result=sanitizeDecision(parsed,observation);}catch(e){console.error('Gemini invalid decision:',String(e.message));throw new AgentError('GEMINI_INVALID_ACTION','Gemini returned an invalid game action',true);}
+ let result;try{result=sanitizeDecision(parsed,observation);}catch(e){if(e instanceof AgentError)throw e;console.error('Gemini invalid decision:',String(e.message));throw new AgentError('GEMINI_INVALID_ACTION','Gemini returned an invalid game action',true);}
  return {...result,model,usage:{inputTokens:data.usageMetadata?.promptTokenCount||0,outputTokens:data.usageMetadata?.candidatesTokenCount||0,totalTokens:data.usageMetadata?.totalTokenCount||0}};
 }
 
@@ -69,5 +76,5 @@ export async function decideBatch({observation,command,memory,history=[],remaini
  let value;try{value=JSON.parse(raw);}catch{console.error('Batch invalid JSON',data.candidates?.[0]?.finishReason);throw new AgentError('GEMINI_INVALID_JSON','Invalid batch JSON',true);}
  if(!Array.isArray(value.actions)||value.actions.length<1||value.actions.length>12)throw new AgentError('GEMINI_INVALID_ACTION','Invalid action batch',true);
  const actions=value.actions.map(a=>{if(!a||!ACTIONS.has(a.action))throw new AgentError('GEMINI_INVALID_ACTION','Unknown action',true);if(a.action==='buy'&&!['potion','sword','armor'].includes(a.item))throw new AgentError('GEMINI_INVALID_ACTION','Unknown shop item',true);return {type:a.action,...(a.action==='buy'?{item:a.item}:{})};});
- return {actions,reason:String(value.reason||'').slice(0,200),note:String(value.note||'').slice(0,220),usage:data.usageMetadata||{}};
+ return {actions,reason:japaneseText(value.reason,200,{required:true}),note:japaneseText(value.note,220),usage:data.usageMetadata||{}};
 }

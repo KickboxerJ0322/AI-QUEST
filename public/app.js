@@ -39,7 +39,7 @@ let currentRunId=localStorage.getItem(RUN_ID_STORAGE)||sessionStorage.getItem('a
 function rememberRun(id){currentRunId=id;localStorage.setItem(RUN_ID_STORAGE,id);sessionStorage.setItem('ai-quest-run-id',id);$('runId').value=id;}
 $('runId').value=currentRunId;
 $('copyRunId').addEventListener('click',async()=>{if(!$('runId').value.trim())return;try{await navigator.clipboard.writeText($('runId').value.trim());}catch{alert('コピーできません。冒険IDを手動でコピーしてください。');}});
-async function cloudRequest(path,method='GET',payload){const r=await fetch(path,{method,headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},...(payload?{body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error||'HTTP '+r.status);return d;}
+async function cloudRequest(path,method='GET',payload){const r=await fetch(path,{method,headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},...(payload?{body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok){const error=Error(d.error||'HTTP '+r.status);error.status=r.status;throw error;}return d;}
 function displayCloudRun(run){
  if(run.state){state=run.state;apiCalls=run.calls||0;totalTokens=run.tokens||0;render();}
  const remaining=Math.max(0,Math.ceil((run.deadline-Date.now())/1000));
@@ -67,12 +67,26 @@ $('startAi').addEventListener('click',runAgent);
 $('resumeAi').addEventListener('click',async()=>{
  if(running)return;
  accessToken=$('accessToken').value.trim();currentRunId=$('runId').value.trim()||currentRunId;if(!accessToken){alert('管理者アクセス・トークンを入力してください。');return;}
- if(!currentRunId){try{const {run}=await cloudRequest('/api/runs/latest');rememberRun(run.id);}catch(e){alert('冒険の検索に失敗しました: '+e.message);accessToken='';return;}}
- rememberRun(currentRunId);
- running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=false;
- try{while(!abortAgent){const {run}=await cloudRequest('/api/runs/'+currentRunId);displayCloudRun(run);if(run.status!=='running')break;await sleep(3500);}}
- catch(e){alert('冒険を読み込めません: '+e.message);}
- finally{running=false;accessToken='';$('accessToken').value='';$('startAi').disabled=false;$('stopAi').disabled=true;}
+ running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=true;$('kingCommand').disabled=true;
+ try{
+  let run;
+  if(currentRunId){
+   try{({run}=await cloudRequest('/api/runs/'+currentRunId));}
+   catch(e){if(e.status!==404)throw e;}
+  }
+  if(!run)({run}=await cloudRequest('/api/runs/latest'));
+  rememberRun(run.id);
+  $('kingCommand').value=run.command;
+  while(!abortAgent){
+   displayCloudRun(run);
+   if(run.status!=='running')break;
+   $('stopAi').disabled=false;
+   await sleep(3500);
+   if(abortAgent)break;
+   ({run}=await cloudRequest('/api/runs/'+currentRunId));
+  }
+ }catch(e){alert('冒険を読み込めません: '+e.message);}
+ finally{running=false;accessToken='';$('accessToken').value='';$('startAi').disabled=false;$('stopAi').disabled=true;$('kingCommand').disabled=false;}
 });
 $('stopAi').addEventListener('click',async()=>{abortAgent=true;if(currentRunId&&accessToken){try{await cloudRequest('/api/runs/'+currentRunId+'/stop','POST');}catch(e){alert('停止に失敗しました: '+e.message);}}$('aiStatus').textContent='停止処理中…';});
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act({type:b.dataset.action,item:b.dataset.item})));
