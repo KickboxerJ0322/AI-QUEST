@@ -21,6 +21,11 @@ export async function startRun(command,secretHash){
  launch(id);
  return clean(run);
 }
+export async function getLatestRun(secretHash){
+ const q=await collection.where('startedAt','>=',Date.now()-86400000).orderBy('startedAt','desc').limit(30).get();
+ const found=q.docs.map(d=>d.data()).find(run=>run.secretHash===secretHash);
+ return found?clean(found):null;
+}
 export async function getRun(id,secretHash){
  if(!/^[0-9a-f-]{36}$/.test(id))return null;
  const snap=await collection.doc(id).get();
