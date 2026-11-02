@@ -58,6 +58,10 @@ async function cloudRoute(req,res,path){
    const body=await readBody(req);
    const {startRun}=await runner();const result=await startRun(body.command,tokenHash(req));json(res,201,{run:result});return;
   }
+  if(path==='/api/runs/latest'&&req.method==='GET'){
+   const {getLatestRun}=await runner();const run=await getLatestRun(tokenHash(req));
+   json(res,run?200:404,run?{run}:{error:'過去24時間の冒険が見つかりません'});return;
+  }
   const match=/^\/api\/runs\/([0-9a-f-]{36})(\/stop)?$/.exec(path);
   if(match){
    if(req.method==='GET'&&!match[2]){const {getRun}=await runner();const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
