@@ -1,9 +1,10 @@
-import {WORLD,W,H,createGame,initialize,dispatch,observe} from './game.js';
+import {WORLD,W,H,createGame,initialize,dispatch,observe,upgradeState} from './game.js';
 const $=id=>document.getElementById(id);
 const STORAGE='ai-quest-step1-v1';
 let running=false,abortAgent=false,apiCalls=0,totalTokens=0,kingOrder='',accessToken='';
 let state;try{state=JSON.parse(localStorage.getItem(STORAGE))}catch{}
 if(!state||typeof state.x!=='number')state=initialize(createGame());
+upgradeState(state);
 const COLORS={"#":"#43536a",".":"#b6ba84","g":"#568c51","f":"#276f4d","C":"#ddd0b2","T":"#c9a16c","D":"#5b536e","M":"#5e345d"};
 const ICONS={"C":"🏰","T":"🏘️","D":"🕳️","M":"🏯"};
 const canvas=$('map'),ctx=canvas.getContext('2d');const tileSize=24;
@@ -27,9 +28,9 @@ function render(){
  $('peace').hidden=!!state.battle;
  $('outcome').textContent=state.won?'🏆 魔王討伐成功！':state.gameOver?'💀 勇者は倒れた。再挑戦してください。':'';
  $('observation').textContent=JSON.stringify(observe(state),null,2);
- $('memory').replaceChildren(...(state.notes||[]).map((v,i)=>{const p=document.createElement('p');p.textContent=(i+1)+'. '+v;return p;}));
+ $('memory').replaceChildren(...[...(state.notes||[])].reverse().slice(0,12).map((v,i)=>{const p=document.createElement('p');p.textContent=(i+1)+'. '+v;return p;}));
  $('aiStatus').textContent=running?'Geminiが冒険中… API呼出 '+apiCalls+'回 / '+totalTokens+' tokens':state.gameOver?'冒険終了':'待機中';
- document.querySelectorAll('[data-action]').forEach(el=>{el.disabled=state.gameOver||(state.battle?!['attack','heal','potion','escape'].includes(el.dataset.action):['attack','escape'].includes(el.dataset.action));});
+ document.querySelectorAll('[data-action]').forEach(el=>{el.disabled=state.gameOver||!observe(state).availableActions.includes(el.dataset.action);});
  localStorage.setItem(STORAGE,JSON.stringify(state));
 }
 function act(action){if(running&&document.activeElement?.hasAttribute('data-action'))return;state=dispatch(state,action);render();}
@@ -41,7 +42,7 @@ $('runId').value=currentRunId;
 $('copyRunId').addEventListener('click',async()=>{if(!$('runId').value.trim())return;try{await navigator.clipboard.writeText($('runId').value.trim());}catch{alert('コピーできません。冒険IDを手動でコピーしてください。');}});
 async function cloudRequest(path,method='GET',payload){const r=await fetch(path,{method,headers:{'Content-Type':'application/json','x-ai-quest-token':accessToken},...(payload?{body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok){const error=Error(d.error||'HTTP '+r.status);error.status=r.status;throw error;}return d;}
 function displayCloudRun(run){
- if(run.state){state=run.state;apiCalls=run.calls||0;totalTokens=run.tokens||0;render();}
+ if(run.state){state=upgradeState(run.state);apiCalls=run.calls||0;totalTokens=run.tokens||0;render();}
  const remaining=Math.max(0,Math.ceil((run.deadline-Date.now())/1000));
  const statusNames={running:'冒険中',won:'魔王討伐成功',lost:'冒険失敗',timeout:'制限時間終了',budget:'利用上限到達',stopped:'停止済み',error:'エラー'};
  $('aiStatus').textContent='クラウド '+(statusNames[run.status]||run.status)+' ｜残り '+Math.floor(remaining/60)+':'+String(remaining%60).padStart(2,'0')+' ｜API '+apiCalls+'回 ｜行動 '+(run.actions||0)+'回 ｜'+totalTokens+' tokens'+(run.lastError?' ｜'+run.lastError:'');

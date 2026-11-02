@@ -12,7 +12,7 @@ async function setup({saved='',status=200,latestStatus=200,runStatus='won'}={}){
   return elements.get(id);
  };
  const run={id:'new-run',command:'装備を整えて魔王を倒せ',status:runStatus,state:game.initialize(game.createGame()),deadline:Date.now()+60000,calls:2,actions:5};
- run.state.notes=['町で装備を整える'];run.state.log=['北へ進んだ'];
+ run.state.notes=['以前のメモ','町で装備を整える'];run.state.log=['北へ進んだ','以前の行動'];
  const storage=map=>({getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)});
  let polls=0;
  const context=vm.createContext({...game,console,Date,JSON,Set,Math,String,Number,Promise,
@@ -38,6 +38,7 @@ test('recover latest adventure without a saved ID and render Japanese records',a
  assert.equal(x.element('kingCommand').value,'装備を整えて魔王を倒せ');
  assert.equal(x.element('memory').children[0].textContent,'1. 町で装備を整える');
  assert.equal(x.element('events').children[0].textContent,'北へ進んだ');
+ assert.equal(x.element('memory').children[1].textContent,'2. 以前のメモ');
  assert.equal(x.element('accessToken').value,'');
  assert.equal(x.element('startAi').disabled,false);
 });

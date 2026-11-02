@@ -28,6 +28,19 @@ export const WORLD = [
 ];
 export const W=WORLD[0].length,H=WORLD.length;
 export const LOCATIONS={castle:[1,1],town:[18,1],village:[2,13],dungeon:[11,7],boss:[20,21]};
+export const BOSS={name:'魔王',hp:60,atk:9,exp:0,gold:0,boss:true};
+export const NOTE_LIMIT=12,LOG_LIMIT=80;
+export function addNote(state,note){
+ if(!note)return;
+ state.notes=[...(state.notes||[]).filter(v=>v!==note),note].slice(-NOTE_LIMIT);
+}
+// Upgrade a persisted encounter as well as newly started adventures.
+export function upgradeState(state){
+ if(state.battle?.boss){state.battle.hp=Math.min(state.battle.hp,BOSS.hp);state.battle.atk=BOSS.atk;}
+ state.notes=(state.notes||[]).slice(-NOTE_LIMIT);
+ state.log=(state.log||[]).slice(0,LOG_LIMIT);
+ return state;
+}
 const ITEMS={potion:{name:"回復薬",price:12},sword:{name:"鋼の剣",price:55},armor:{name:"鉄の鎧",price:45}};
 const ENEMIES=[
 {name:"スライム",hp:10,atk:3,exp:5,gold:7},
@@ -39,7 +52,7 @@ export function createGame(seed=42){
  return {seed,x:1,y:1,hp:30,maxHp:30,mp:8,maxMp:8,level:1,exp:0,gold:24,attack:6,defense:2,turn:0,steps:0,potions:2,sword:false,armor:false,key:false,visited:[],discovered:[],log:["王様の命令を待つ勇者が城にいる。"],battle:null,won:false,gameOver:false,notes:[],rng:seed>>>0};
 }
 function random(s){s.rng=(Math.imul(s.rng,1664525)+1013904223)>>>0;return s.rng/4294967296;}
-function log(s,msg){s.log.unshift(msg);s.log=s.log.slice(0,80);}
+function log(s,msg){s.log.unshift(msg);s.log=s.log.slice(0,LOG_LIMIT);}
 function tile(x,y){return WORLD[y]?.[x]??"#";}
 function heal(s,n){const before=s.hp;s.hp=Math.min(s.maxHp,s.hp+n);return s.hp-before;}
 function discover(s){for(let dy=-3;dy<=3;dy++)for(let dx=-3;dx<=3;dx++){let x=s.x+dx,y=s.y+dy;if(x>=0&&y>=0&&x<W&&y<H&&Math.abs(dx)+Math.abs(dy)<=4){let k=x+","+y;if(!s.discovered.includes(k))s.discovered.push(k);}}}
@@ -62,11 +75,11 @@ function enter(s){
  if(t==="D"){if(!s.key){s.key=true;s.gold+=15;log(s,"洞窟で魔王城の鍵を発見！ 宝箱から15Gも入手。");}else log(s,"洞窟は探索済み。");}
  if(t==="M"){if(!s.key){log(s,"魔王城の門は閉ざされている。洞窟で鍵を探そう。");return;}
   if(s.level<3)log(s,"魔王の力は強大だ。準備不足かもしれない。");
-  s.battle={name:"魔王",hp:95,atk:13,exp:0,gold:0,boss:true};log(s,"魔王が現れた！");}
+  s.battle={...BOSS};log(s,"魔王が現れた！");}
 }
 export function dispatch(current,action){
  const s=copy(current);if(s.gameOver)return s;
- if(s.battle){fight(s,action.type);s.turn++;return s;}
+ if(s.battle){if(!observe(s).availableActions.includes(action.type)){log(s,s.battle.boss&&action.type==="escape"?"魔王との戦闘からは逃げられない。攻撃か回復を選ぼう。":"今はその行動を実行できない。");return s;}fight(s,action.type);s.turn++;return s;}
  const d={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
  if(d[action.type]){
   const [dx,dy]=d[action.type],x=s.x+dx,y=s.y+dy,t=tile(x,y);
@@ -84,6 +97,6 @@ export function dispatch(current,action){
 }
 export function observe(s){
  const visible=[];for(let y=Math.max(0,s.y-3);y<=Math.min(H-1,s.y+3);y++)for(let x=Math.max(0,s.x-3);x<=Math.min(W-1,s.x+3);x++)if(Math.abs(x-s.x)+Math.abs(y-s.y)<=4)visible.push({x,y,tile:tile(x,y)});
- return {position:{x:s.x,y:s.y},stats:{hp:s.hp,maxHp:s.maxHp,mp:s.mp,level:s.level,gold:s.gold},inventory:{potions:s.potions,sword:s.sword,armor:s.armor,key:s.key},visibleTiles:visible,battle:s.battle?{name:s.battle.name,hp:s.battle.hp}:null,latestLog:s.log.slice(0,8),availableActions:s.battle?["attack","heal","potion","escape"]:["up","down","left","right","heal","potion","talk","buy"],notes:s.notes};
+ return {position:{x:s.x,y:s.y},stats:{hp:s.hp,maxHp:s.maxHp,mp:s.mp,level:s.level,gold:s.gold,attack:s.attack+(s.sword?7:0),defense:s.defense+(s.armor?4:0)},inventory:{potions:s.potions,sword:s.sword,armor:s.armor,key:s.key},visibleTiles:visible,battle:s.battle?{name:s.battle.name,hp:s.battle.hp,attack:s.battle.atk,boss:!!s.battle.boss,canEscape:!s.battle.boss}:null,latestLog:s.log.slice(0,8),availableActions:s.battle?["attack",...(s.mp>=3?["heal"]:[]),...(s.potions>0?["potion"]:[]),...(!s.battle.boss?["escape"]:[])]:["up","down","left","right","heal","potion","talk","buy"],notes:[...(s.notes||[])].reverse()};
 }
 export function initialize(s){const n=copy(s);discover(n);return n;}

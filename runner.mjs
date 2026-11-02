@@ -1,6 +1,6 @@
 import {Firestore} from '@google-cloud/firestore';
 import {randomUUID} from 'node:crypto';
-import {createGame,initialize,dispatch,observe,WORLD} from './public/game.js';
+import {createGame,initialize,dispatch,observe,WORLD,addNote,upgradeState,LOG_LIMIT} from './public/game.js';
 import {decideBatch} from './agent.mjs';
 const db=new Firestore({projectId:process.env.GOOGLE_CLOUD_PROJECT||'jumpeicloud'});
 const collection=db.collection('ai_quest_runs');
@@ -55,14 +55,13 @@ async function drive(id){
    await ref.update({status,updatedAt:now});return;
   }
   try{
+   upgradeState(run.state);
    const o=observe(run.state);
    // History is accumulated by the engine, never expose hidden world tiles.
-   const result=await decideBatch({observation:o,command:run.command,memory:run.state.notes||[],history:run.history,remainingSeconds:Math.floor((run.deadline-now)/1000)});
+   const result=await decideBatch({observation:o,command:run.command,memory:o.notes,history:run.history,remainingSeconds:Math.floor((run.deadline-now)/1000)});
    if((await ref.get()).data()?.status!=='running')return;
    failures=0;run.calls++;run.tokens+=result.usage.totalTokenCount||0;
-   if(result.note&&!(run.state.notes||[]).includes(result.note)){
-    run.state.notes=[...(run.state.notes||[]).slice(-11),result.note];
-   }
+   addNote(run.state,result.note);
    let executed=0;
    for(const action of result.actions){
     if(Date.now()>=run.deadline||run.state.gameOver)break;
@@ -79,7 +78,7 @@ async function drive(id){
     if(executed>=12)break;
    }
    run.state.log.unshift('🤖 '+result.reason+' / '+executed+'行動');
-   run.state.log=run.state.log.slice(0,80);
+   run.state.log=run.state.log.slice(0,LOG_LIMIT);
    run.updatedAt=Date.now();
    await db.runTransaction(async tx=>{const current=await tx.get(ref);if(current.data()?.status==='running')tx.set(ref,run);});
    await pause(3500);

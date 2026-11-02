@@ -21,6 +21,9 @@ test('STEP 3 batch validates Japanese before returning notes and log reason',asy
  reply({actions:[{action:'up'},{action:'right'}],reason:'北東を探索する',note:'町を探す'});
  const result=await decideBatch(args);
  assert.equal(result.actions.length,2);assert.equal(result.note,'町を探す');
+ reply({actions:[{action:'escape'}],reason:'逃げる',note:''});
+ await assert.rejects(decideBatch({...args,observation:{...observation,battle:{boss:true,canEscape:false},availableActions:['attack']}}),e=>e.code==='GEMINI_INVALID_ACTION');
+
  for(const field of ['note','reason']){
   reply({actions:[{action:'up'}],reason:'北を探索する',note:'町を探す',[field]:'Explore north'});
   await assert.rejects(decideBatch(args),e=>e.code==='GEMINI_LANGUAGE'&&e.retryable);
