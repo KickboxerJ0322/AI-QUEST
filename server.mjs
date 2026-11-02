@@ -56,7 +56,7 @@ async function cloudRoute(req,res,path){
    const body=await readBody(req);
    const result=await startRun(body.command,tokenHash(req));json(res,201,{run:result});return;
   }
-  const match=new RegExp('^/api/runs/([0-9a-f-]{36})(/stop)?
+  const match=/^\/api\/runs\/([0-9a-f-]{36})(\/stop)?$/.exec(path);
   if(match){
    if(req.method==='GET'&&!match[2]){const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
    if(req.method==='POST'&&match[2]){const run=await stopRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
