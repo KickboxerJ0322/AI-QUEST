@@ -1,6 +1,7 @@
 import {Firestore} from '@google-cloud/firestore';
 import {randomUUID} from 'node:crypto';
 import {createGame,initialize,dispatch,observe,WORLD,addNote,upgradeState,LOG_LIMIT} from './public/game.js';
+import {progressPlan} from './navigation.mjs';
 import {decideBatch} from './agent.mjs';
 const db=new Firestore({projectId:process.env.GOOGLE_CLOUD_PROJECT||'jumpeicloud'});
 const collection=db.collection('ai_quest_runs');
@@ -58,9 +59,11 @@ async function drive(id){
    upgradeState(run.state);
    const o=observe(run.state);
    // History is accumulated by the engine, never expose hidden world tiles.
-   const result=await decideBatch({observation:o,command:run.command,memory:o.notes,history:run.history,remainingSeconds:Math.floor((run.deadline-now)/1000)});
+   const guidance=progressPlan(run.state,run.history,run.stalledBatches||0);
+   let result=await decideBatch({guidance,observation:o,command:run.command,memory:o.notes,history:run.history,remainingSeconds:Math.floor((run.deadline-now)/1000)});
    if((await ref.get()).data()?.status!=='running')return;
    failures=0;run.calls++;run.tokens+=result.usage.totalTokenCount||0;
+   if(guidance.recover&&guidance.route.length)result={...result,actions:guidance.route,reason:'同じ場所での停滞を解消し、'+guidance.objective,note:''};
    addNote(run.state,result.note);
    let executed=0;
    for(const action of result.actions){
@@ -69,7 +72,7 @@ async function drive(id){
     if(!available.includes(action.type))break;
     const before=run.state,from=before.x+','+before.y,wasBattle=!!before.battle;
     const next=dispatch(before,action);
-    if(next.turn===before.turn&&next.x===before.x&&next.y===before.y)break;
+    if(next.turn===before.turn&&next.x===before.x&&next.y===before.y){run.state=next;break;}
     run.state=next;executed++;run.actions++;
     run.history.push({from,to:next.x+','+next.y,action:action.type,battle:!!next.battle,turn:next.turn});
     if(run.history.length>60)run.history=run.history.slice(-60);
@@ -77,6 +80,7 @@ async function drive(id){
     if(!!next.battle!==wasBattle||next.key!==before.key||next.won||WORLD[next.y]?.[next.x]!==WORLD[before.y]?.[before.x]&&'CTDM'.includes(WORLD[next.y]?.[next.x]||'?'))break;
     if(executed>=12)break;
    }
+   run.stalledBatches=executed===0?(run.stalledBatches||0)+1:0;
    run.state.log.unshift('🤖 '+result.reason+' / '+executed+'行動');
    run.state.log=run.state.log.slice(0,LOG_LIMIT);
    run.updatedAt=Date.now();

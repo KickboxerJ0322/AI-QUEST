@@ -20,6 +20,10 @@ test('STEP 3 batch validates Japanese before returning notes and log reason',asy
  const args={observation,command:'魔王を倒せ',memory:[],remainingSeconds:1800};
  reply({actions:[{action:'up'},{action:'right'}],reason:'北東を探索する',note:'町を探す'});
  const result=await decideBatch(args);
+ reply({actions:[{action:'buy',item:'sword'}],reason:'ここを町と思い買い物する',note:'町で待機'});
+ const recovered=await decideBatch({...args,observation:{...observation,availableActions:['up']},guidance:{objective:'魔王城へ向かう',route:[{type:'up'}]}});
+ assert.deepEqual(recovered.actions,[{type:'up'}]);assert.equal(recovered.note,'');
+
  assert.equal(result.actions.length,2);assert.equal(result.note,'町を探す');
  reply({actions:[{action:'escape'}],reason:'逃げる',note:''});
  await assert.rejects(decideBatch({...args,observation:{...observation,battle:{boss:true,canEscape:false},availableActions:['attack']}}),e=>e.code==='GEMINI_INVALID_ACTION');

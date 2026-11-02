@@ -92,11 +92,25 @@ export function dispatch(current,action){
  }else if(action.type==="potion"){if(s.potions>0){s.potions--;log(s,"回復薬でHPを "+heal(s,22)+" 回復。");s.turn++;}else log(s,"回復薬がない。");}
  else if(action.type==="heal"){if(s.mp>=3){s.mp-=3;log(s,"回復魔法でHPを "+heal(s,16+s.level*2)+" 回復。");s.turn++;}else log(s,"MPが足りない。");}
  else if(action.type==="buy"){if(tile(s.x,s.y)!=="T"){log(s,"買い物は町でしかできない。");return s;}const item=ITEMS[action.item];if(!item){log(s,"商品が存在しない。");return s;}if(s.gold<item.price){log(s,"お金が足りない。");return s;}if(action.item!=="potion"&&s[action.item]){log(s,"すでに持っている。");return s;}s.gold-=item.price;if(action.item==="potion")s.potions++;else s[action.item]=true;log(s,item.name+" を購入した。");s.turn++;}
- else if(action.type==="talk"){const t=tile(s.x,s.y);log(s,t==="C"?"王様『北東の町で装備を整え、中央の洞窟で鍵を探せ。』":t==="T"?"町人『南の魔王城には鍵が必要だ。装備を整えて挑もう。』":"周囲に話せる人はいない。");s.turn++;}
+ else if(action.type==="talk"){const t=tile(s.x,s.y);s.talked=[...new Set([...(s.talked||[]),s.x+","+s.y])];log(s,t==="C"?"王様『北東の町で装備を整え、中央の洞窟で鍵を探せ。』":t==="T"?"町人『南の魔王城には鍵が必要だ。装備を整えて挑もう。』":"周囲に話せる人はいない。");s.turn++;}
  discover(s);return s;
+}
+export function availableActions(s){
+ if(s.gameOver)return [];
+ if(s.battle)return ["attack",...(s.hp<s.maxHp&&s.mp>=3?["heal"]:[]),...(s.hp<s.maxHp&&s.potions>0?["potion"]:[]),...(!s.battle.boss?["escape"]:[])];
+ const t=tile(s.x,s.y),actions=[];
+ for(const [action,dx,dy] of [["up",0,-1],["down",0,1],["left",-1,0],["right",1,0]])if(tile(s.x+dx,s.y+dy)!=="#")actions.push(action);
+ if(s.hp<s.maxHp&&s.mp>=3)actions.push("heal");
+ if(s.hp<s.maxHp&&s.potions>0)actions.push("potion");
+ if("CT".includes(t)&&!(s.talked||[]).includes(s.x+','+s.y))actions.push("talk");
+ if(t==="T"&&Object.entries(ITEMS).some(([item,v])=>s.gold>=v.price&&(item==="potion"?s.potions<3:!s[item])))actions.push("buy");
+ return actions;
 }
 export function observe(s){
  const visible=[];for(let y=Math.max(0,s.y-3);y<=Math.min(H-1,s.y+3);y++)for(let x=Math.max(0,s.x-3);x<=Math.min(W-1,s.x+3);x++)if(Math.abs(x-s.x)+Math.abs(y-s.y)<=4)visible.push({x,y,tile:tile(x,y)});
- return {position:{x:s.x,y:s.y},stats:{hp:s.hp,maxHp:s.maxHp,mp:s.mp,level:s.level,gold:s.gold,attack:s.attack+(s.sword?7:0),defense:s.defense+(s.armor?4:0)},inventory:{potions:s.potions,sword:s.sword,armor:s.armor,key:s.key},visibleTiles:visible,battle:s.battle?{name:s.battle.name,hp:s.battle.hp,attack:s.battle.atk,boss:!!s.battle.boss,canEscape:!s.battle.boss}:null,latestLog:s.log.slice(0,8),availableActions:s.battle?["attack",...(s.mp>=3?["heal"]:[]),...(s.potions>0?["potion"]:[]),...(!s.battle.boss?["escape"]:[])]:["up","down","left","right","heal","potion","talk","buy"],notes:[...(s.notes||[])].reverse()};
+ const t=tile(s.x,s.y);
+ const knownLocations=s.discovered.map(k=>{const [x,y]=k.split(',').map(Number);return {x,y,tile:tile(x,y)};}).filter(p=>"CTDM".includes(p.tile));
+ const location={tile:t,name:({"C":"王城","T":"町","D":"洞窟","M":"魔王城",".":"平地","g":"草地","f":"森"})[t]||"岩山",isTown:t==="T",taskComplete:t==="D"?s.key:t==="T"?s.hp===s.maxHp&&s.mp===s.maxMp&&!availableActions(s).includes("buy"):false};
+ return {position:{x:s.x,y:s.y},location,knownLocations,quest:{keyObtained:s.key,levelReady:s.level>=3,readyForBoss:s.key&&s.level>=3,objective:!s.key?"洞窟で鍵を入手する":s.level<3?"草地や森の敵を倒してLv3にする":"魔王城へ向かい魔王を倒す"},stats:{hp:s.hp,maxHp:s.maxHp,mp:s.mp,level:s.level,gold:s.gold,attack:s.attack+(s.sword?7:0),defense:s.defense+(s.armor?4:0)},inventory:{potions:s.potions,sword:s.sword,armor:s.armor,key:s.key},visibleTiles:visible,battle:s.battle?{name:s.battle.name,hp:s.battle.hp,attack:s.battle.atk,boss:!!s.battle.boss,canEscape:!s.battle.boss}:null,latestLog:s.log.slice(0,8),availableActions:availableActions(s),notes:[...(s.notes||[])].reverse()};
 }
 export function initialize(s){const n=copy(s);discover(n);return n;}

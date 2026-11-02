@@ -21,6 +21,7 @@ jobs:
         run: |
           node --check server.mjs
           node --check runner.mjs
+          node --check navigation.mjs
           node --check agent.mjs
           node --check public/app.js
           node --check public/game.js
