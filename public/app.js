@@ -66,7 +66,8 @@ async function runAgent(){
 $('startAi').addEventListener('click',runAgent);
 $('resumeAi').addEventListener('click',async()=>{
  if(running)return;
- accessToken=$('accessToken').value.trim();currentRunId=$('runId').value.trim()||currentRunId;if(!accessToken||!currentRunId){alert('管理者アクセス・トークンと冒険IDを入力してください。冒険IDは同じブラウザなら自動保存されています。');return;}
+ accessToken=$('accessToken').value.trim();currentRunId=$('runId').value.trim()||currentRunId;if(!accessToken){alert('管理者アクセス・トークンを入力してください。');return;}
+ if(!currentRunId){try{const {run}=await cloudRequest('/api/runs/latest');rememberRun(run.id);}catch(e){alert('冒険の検索に失敗しました: '+e.message);accessToken='';return;}}
  rememberRun(currentRunId);
  running=true;abortAgent=false;$('startAi').disabled=true;$('stopAi').disabled=false;
  try{while(!abortAgent){const {run}=await cloudRequest('/api/runs/'+currentRunId);displayCloudRun(run);if(run.status!=='running')break;await sleep(3500);}}
