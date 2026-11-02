@@ -2,7 +2,9 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import {decide} from './agent.mjs';
 import {timingSafeEqual,createHash} from 'node:crypto';
-import {startRun,getRun,stopRun,resumeRuns} from './runner.mjs';
+// Lazy-load the worker so transient Firestore initialization problems cannot prevent web startup.
+let runnerPromise;
+function runner(){return runnerPromise??=(import('./runner.mjs').catch(e=>{runnerPromise=undefined;throw e;}));}
 const port = Number(process.env.PORT || 8080);
 const assets = new Map([
   ['/', ['public/index.html', 'text/html; charset=utf-8']],
@@ -54,12 +56,12 @@ async function cloudRoute(req,res,path){
  try{
   if(path==='/api/runs'&&req.method==='POST'){
    const body=await readBody(req);
-   const result=await startRun(body.command,tokenHash(req));json(res,201,{run:result});return;
+   const {startRun}=await runner();const result=await startRun(body.command,tokenHash(req));json(res,201,{run:result});return;
   }
   const match=/^\/api\/runs\/([0-9a-f-]{36})(\/stop)?$/.exec(path);
   if(match){
-   if(req.method==='GET'&&!match[2]){const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
-   if(req.method==='POST'&&match[2]){const run=await stopRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
+   if(req.method==='GET'&&!match[2]){const {getRun}=await runner();const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
+   if(req.method==='POST'&&match[2]){const {stopRun}=await runner();const run=await stopRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
   }
   json(res,404,{error:'Not found'});
  }catch(e){console.error('Cloud run route failed',String(e.message).slice(0,180));json(res,500,{error:'Cloud mission request failed. Check Firestore configuration.'});}
@@ -78,7 +80,7 @@ http.createServer((req, res) => {
   if (!file) { res.writeHead(404, securityHeaders);res.end();return; }
   res.writeHead(200,{...securityHeaders,'Content-Type':file.type});
   res.end(req.method === 'HEAD' ? undefined : file.data);
-}).listen(port,'0.0.0.0',()=>{console.log('AI QUEST listening on '+port);resumeRuns().catch(e=>console.error('Run resume failed:',e.message));});
+}).listen(port,'0.0.0.0',()=>{console.log('AI QUEST listening on '+port);runner().then(m=>m.resumeRuns()).catch(e=>console.error('Run resume failed:',e.stack||e.message));});
 ).exec(path);
   if(match){
    if(req.method==='GET'&&!match[2]){const run=await getRun(match[1],tokenHash(req));json(res,run?200:404,run?{run}:{error:'Not found'});return;}
